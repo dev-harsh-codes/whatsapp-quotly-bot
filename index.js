@@ -3,9 +3,11 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys'
 import express from 'express'
+import fs from 'fs'
 import pino from 'pino'
 import QRCode from 'qrcode'
 import sharp from 'sharp'
@@ -15,11 +17,22 @@ const PORT = process.env.PORT || 8080
 const BACKEND_URL = process.env.BOT_BACKEND_URL || 'https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site'
 let PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
 const DEFAULT_THEME = process.env.DEFAULT_QUOTE_THEME || 'whatsapp-dark'
+const AUTH_DIR = './auth_info_baileys'
 
 let latestQrDataUrl = null
 let latestPairingCode = null
 let connectionState = 'initializing'
 let activeSock = null
+let authMode = 'qr' // 'qr' or 'pair' — never run both on the same socket!
+
+function clearAuthFolder() {
+  try {
+    fs.rmSync(AUTH_DIR, { recursive: true, force: true })
+    console.log('[Auth] Cleared stale auth_info_baileys folder for fresh link')
+  } catch (err) {
+    console.error('[Auth] Failed clearing auth dir:', err.message)
+  }
+}
 
 const app = express()
 
@@ -29,32 +42,34 @@ app.get('/', (_req, res) => {
     <head>
       <meta charset="utf-8" />
       <title>QuotLy Bhai WhatsApp Bot - Heroku Status</title>
-      <meta http-equiv="refresh" content="8" />
+      <meta http-equiv="refresh" content="6" />
       <style>
-        body { font-family: system-ui, sans-serif; background: #0b141a; color: #e9edef; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .card { background: #1f2c34; padding: 32px; border-radius: 20px; max-width: 440px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        body { font-family: system-ui, sans-serif; background: #0b141a; color: #e9edef; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
+        .card { background: #1f2c34; padding: 28px; border-radius: 20px; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
         .badge { display: inline-block; padding: 6px 14px; border-radius: 999px; background: #00a884; color: #fff; font-weight: 700; font-size: 13px; margin-bottom: 16px; }
         .code { font-size: 28px; letter-spacing: 6px; font-weight: 800; color: #53bdeb; background: #121b22; padding: 14px 20px; border-radius: 12px; margin: 16px 0; }
         img { border-radius: 12px; background: #fff; padding: 12px; margin-top: 12px; }
         .btn { display: inline-block; margin-top: 12px; padding: 10px 18px; border-radius: 10px; background: #00a884; color: #fff; text-decoration: none; font-weight: 700; font-size: 13px; border: none; cursor: pointer; }
+        .btn-reset { background: #ef4444; margin-left: 8px; }
         input { padding: 10px 12px; border-radius: 10px; border: 1px solid #334155; background: #121b22; color: #fff; width: 70%; margin-top: 10px; }
       </style>
     </head>
     <body>
       <div class="card">
-        <div class="badge">Status: ${connectionState.toUpperCase()}</div>
+        <div class="badge">Status: ${connectionState.toUpperCase()} (Mode: ${authMode.toUpperCase()})</div>
         <h2>QuotLy Bhai WhatsApp Bot</h2>
         <p>Connected Backend: <code>${BACKEND_URL}</code></p>
-        ${latestPairingCode && connectionState !== 'open' ? `<p>Enter this Pairing Code in WhatsApp &rarr; Linked Devices:</p><div class="code">${latestPairingCode}</div>` : ''}
-        ${latestQrDataUrl && connectionState !== 'open' ? `<p>Or scan this WhatsApp QR Code:</p><img src="${latestQrDataUrl}" width="240" height="240" />` : ''}
+        ${authMode === 'pair' && latestPairingCode && connectionState !== 'open' ? `<p>Enter this Pairing Code in WhatsApp &rarr; Linked Devices:</p><div class="code">${latestPairingCode}</div>` : ''}
+        ${authMode === 'qr' && latestQrDataUrl && connectionState !== 'open' ? `<p>Scan this Fresh WhatsApp QR Code (Links in 3 sec):</p><img src="${latestQrDataUrl}" width="250" height="250" />` : ''}
         ${connectionState !== 'open' ? `
           <form action="/pair" method="GET" style="margin-top:16px;">
             <input type="text" name="phone" value="${PAIRING_NUMBER}" placeholder="919341384908" />
             <br/>
-            <button type="submit" class="btn">Generate Fresh Pairing Code</button>
+            <button type="submit" class="btn">Switch to 8-Digit Pairing Code</button>
+            <a href="/reset-qr" class="btn btn-reset">Reset & Fresh QR</a>
           </form>
         ` : ''}
-        ${connectionState === 'open' ? '<p style="color:#22c55e;font-weight:700;">WhatsApp Bot is Online & Ready for /q commands!</p>' : ''}
+        ${connectionState === 'open' ? '<p style="color:#22c55e;font-weight:700;">WhatsApp Bot is Online & Ready for /q commands!</p><a href="/reset-qr" class="btn btn-reset">Logout & Reset Session</a>' : ''}
       </div>
     </body>
   </html>`)
@@ -63,14 +78,26 @@ app.get('/', (_req, res) => {
 app.get('/pair', async (req, res) => {
   const phone = String(req.query.phone || PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
   if (phone) PAIRING_NUMBER = phone
-  if (activeSock && PAIRING_NUMBER && !activeSock.authState.creds.registered) {
-    try {
-      const code = await activeSock.requestPairingCode(PAIRING_NUMBER)
-      latestPairingCode = code?.match(/.{1,4}/g)?.join('-') || code
-    } catch (err) {
-      console.error('Pairing request error:', err.message)
-    }
-  }
+  authMode = 'pair'
+  latestQrDataUrl = null
+  latestPairingCode = 'GENERATING...'
+  clearAuthFolder()
+  try {
+    activeSock?.end(undefined)
+  } catch {}
+  setTimeout(() => startBot(), 500)
+  res.redirect('/')
+})
+
+app.get('/reset-qr', (_req, res) => {
+  authMode = 'qr'
+  latestPairingCode = null
+  latestQrDataUrl = null
+  clearAuthFolder()
+  try {
+    activeSock?.end(undefined)
+  } catch {}
+  setTimeout(() => startBot(), 500)
   res.redirect('/')
 })
 
@@ -83,19 +110,30 @@ app.listen(PORT, '0.0.0.0', () => {
 })
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys')
+  const logger = pino({ level: 'silent' })
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
   const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
     version,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: !PAIRING_NUMBER,
-    auth: state,
+    logger,
+    printQRInTerminal: authMode === 'qr',
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
     browser: Browsers.ubuntu('Chrome'),
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    generateHighQualityLinkPreview: false,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 0,
+    keepAliveIntervalMs: 10000,
+    getMessage: async () => ({ conversation: 'QuotLy Bhai Bot' }),
   })
   activeSock = sock
 
-  if (PAIRING_NUMBER && !sock.authState.creds.registered) {
+  if (authMode === 'pair' && PAIRING_NUMBER && !sock.authState.creds.registered) {
     setTimeout(async () => {
       try {
         const code = await sock.requestPairingCode(PAIRING_NUMBER)
@@ -106,27 +144,36 @@ async function startBot() {
       } catch (err) {
         console.error('Failed to request pairing code:', err.message)
       }
-    }, 3000)
+    }, 3500)
   }
 
   sock.ev.on('creds.update', saveCreds)
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update
-    if (qr) {
+    if (qr && authMode === 'qr') {
       connectionState = 'awaiting_qr_scan'
       latestQrDataUrl = await QRCode.toDataURL(qr)
     }
     if (connection === 'close') {
+      const statusCode = lastDisconnect?.error?.output?.statusCode
+      console.log('[Connection Closed] statusCode:', statusCode)
       connectionState = 'reconnecting'
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
-      if (shouldReconnect) {
-        setTimeout(startBot, 4000)
+      if (
+        statusCode === DisconnectReason.loggedOut ||
+        statusCode === DisconnectReason.badSession ||
+        statusCode === 401 ||
+        statusCode === 405
+      ) {
+        clearAuthFolder()
+        setTimeout(startBot, 2000)
+      } else {
+        setTimeout(startBot, 1500)
       }
     } else if (connection === 'open') {
       connectionState = 'open'
       latestQrDataUrl = null
+      latestPairingCode = null
       console.log('✅ WhatsApp Bot connected! Try replying /q to any message.')
     }
   })
