@@ -135,14 +135,17 @@ async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
     ? `Quoted Message: "${quotedText}"\n\nUser Request: ${prompt || 'Reply to this'}`
     : prompt
 
-  // 1. Direct Gemini Free Tier call if valid AIzaSy... GEMINI_API_KEY is set
-  if (GEMINI_API_KEY && GEMINI_API_KEY.startsWith('AIza')) {
-    for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+  // 1. Direct Gemini Free Tier call (supports both AQ... auth keys and AIza... keys)
+  if (GEMINI_API_KEY) {
+    for (const model of ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash']) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY,
+          },
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: systemInstruction }] },
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
