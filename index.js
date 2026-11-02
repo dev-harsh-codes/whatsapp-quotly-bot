@@ -23,9 +23,43 @@ let latestQrDataUrl = null
 let latestPairingCode = null
 let connectionState = 'initializing'
 let activeSock = null
+let currentSocketId = 0
+let reconnectTimer = null
 let authMode = 'qr' // 'qr' or 'pair' — never run both on the same socket!
 const contactDirectory = new Map() // jid -> { name, notify, verifiedName }
 const processedMsgIds = new Set()
+
+// Prevent transient Baileys internal sendRetryRequest (428) errors from crashing Heroku dyno
+process.on('unhandledRejection', (err) => {
+  console.warn('[SafeGuard] Ignored unhandledRejection:', err?.message || err)
+})
+process.on('uncaughtException', (err) => {
+  console.warn('[SafeGuard] Ignored uncaughtException:', err?.message || err)
+})
+
+function destroyActiveSocket() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (activeSock) {
+    try {
+      activeSock.ev.removeAllListeners('connection.update')
+      activeSock.ev.removeAllListeners('creds.update')
+      activeSock.ev.removeAllListeners('messages.upsert')
+      activeSock.ws?.close()
+    } catch {}
+    activeSock = null
+  }
+}
+
+function scheduleReconnect(delayMs = 3000) {
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    startBot()
+  }, delayMs)
+}
 
 function upsertContactInfo(jid, info = {}) {
   if (!jid) return
@@ -144,11 +178,9 @@ app.get('/pair', async (req, res) => {
   authMode = 'pair'
   latestQrDataUrl = null
   latestPairingCode = 'GENERATING...'
+  destroyActiveSocket()
   clearAuthFolder()
-  try {
-    activeSock?.end(undefined)
-  } catch {}
-  setTimeout(() => startBot(), 500)
+  scheduleReconnect(600)
   res.redirect('/')
 })
 
@@ -156,11 +188,9 @@ app.get('/reset-qr', (_req, res) => {
   authMode = 'qr'
   latestPairingCode = null
   latestQrDataUrl = null
+  destroyActiveSocket()
   clearAuthFolder()
-  try {
-    activeSock?.end(undefined)
-  } catch {}
-  setTimeout(() => startBot(), 500)
+  scheduleReconnect(600)
   res.redirect('/')
 })
 
@@ -173,6 +203,8 @@ app.listen(PORT, '0.0.0.0', () => {
 })
 
 async function startBot() {
+  destroyActiveSocket()
+  const mySocketId = ++currentSocketId
   const logger = pino({ level: 'silent' })
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
   const { version } = await fetchLatestBaileysVersion()
@@ -180,7 +212,6 @@ async function startBot() {
   const sock = makeWASocket({
     version,
     logger,
-    printQRInTerminal: authMode === 'qr',
     auth: {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -198,6 +229,7 @@ async function startBot() {
 
   if (authMode === 'pair' && PAIRING_NUMBER && !sock.authState.creds.registered) {
     setTimeout(async () => {
+      if (mySocketId !== currentSocketId) return
       try {
         const code = await sock.requestPairingCode(PAIRING_NUMBER)
         latestPairingCode = code?.match(/.{1,4}/g)?.join('-') || code
@@ -233,6 +265,7 @@ async function startBot() {
   })
 
   sock.ev.on('connection.update', async (update) => {
+    if (mySocketId !== currentSocketId) return
     const { connection, lastDisconnect, qr } = update
     if (qr && authMode === 'qr') {
       connectionState = 'awaiting_qr_scan'
@@ -249,9 +282,12 @@ async function startBot() {
         statusCode === 405
       ) {
         clearAuthFolder()
-        setTimeout(startBot, 2000)
+        scheduleReconnect(2500)
+      } else if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
+        console.log('[Connection] Replaced (440), waiting 6s before single reconnect...')
+        scheduleReconnect(6000)
       } else {
-        setTimeout(startBot, 1500)
+        scheduleReconnect(2000)
       }
     } else if (connection === 'open') {
       connectionState = 'open'
@@ -262,6 +298,7 @@ async function startBot() {
   })
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (mySocketId !== currentSocketId) return
     if (type !== 'notify' && type !== 'append') return
     for (const msg of messages) {
       if (!msg?.message || !msg.key?.id) continue
