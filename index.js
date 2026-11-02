@@ -24,6 +24,69 @@ let latestPairingCode = null
 let connectionState = 'initializing'
 let activeSock = null
 let authMode = 'qr' // 'qr' or 'pair' — never run both on the same socket!
+const contactDirectory = new Map() // jid -> { name, notify, verifiedName }
+const processedMsgIds = new Set()
+
+function upsertContactInfo(jid, info = {}) {
+  if (!jid) return
+  const cleanJid = jid.split(':')[0].includes('@') ? jid.split(':')[0] : jid
+  const prev = contactDirectory.get(cleanJid) || {}
+  contactDirectory.set(cleanJid, {
+    name: info.name || prev.name || '',
+    notify: info.notify || prev.notify || '',
+    verifiedName: info.verifiedName || prev.verifiedName || '',
+  })
+}
+
+function formatPhoneNumber(jid = '') {
+  const raw = String(jid).split('@')[0].split(':')[0].replace(/[^0-9]/g, '')
+  if (!raw) return 'WhatsApp User'
+  if (raw.length === 12 && raw.startsWith('91')) {
+    return `+91 ${raw.slice(2, 7)} ${raw.slice(7)}`
+  }
+  return `+${raw}`
+}
+
+function resolveBestDisplayName(jid, sockUser) {
+  if (!jid) return 'WhatsApp User'
+  const normalized = jid.split(':')[0].includes('@') ? jid.split(':')[0] : jid
+  const entry = contactDirectory.get(normalized) || contactDirectory.get(jid) || {}
+
+  // Priority 1: Saved Contact Name
+  if (entry.name && entry.name.trim()) return entry.name.trim()
+
+  // Priority 2: WhatsApp Nickname (notify / pushName / verifiedName)
+  if (entry.notify && entry.notify.trim()) return entry.notify.trim()
+  if (entry.verifiedName && entry.verifiedName.trim()) return entry.verifiedName.trim()
+
+  // If it's the bot/owner's own number
+  const selfBase = sockUser?.id?.split(':')[0]?.split('@')[0]
+  const targetBase = normalized.split('@')[0]
+  if (selfBase && targetBase === selfBase && sockUser?.name) {
+    return sockUser.name
+  }
+
+  // Priority 3: Formatted Mobile Number
+  return formatPhoneNumber(normalized)
+}
+
+async function fetchAvatarDataUrl(sock, jid) {
+  if (!jid) return undefined
+  try {
+    const ppUrl = await sock.profilePictureUrl(jid, 'image')
+    if (!ppUrl) return undefined
+    const res = await fetch(ppUrl)
+    if (!res.ok) return undefined
+    const arrayBuf = await res.arrayBuffer()
+    const pngBuf = await sharp(Buffer.from(arrayBuf))
+      .resize(96, 96, { fit: 'cover' })
+      .png()
+      .toBuffer()
+    return `data:image/png;base64,${pngBuf.toString('base64')}`
+  } catch {
+    return undefined
+  }
+}
 
 function clearAuthFolder() {
   try {
@@ -149,6 +212,26 @@ async function startBot() {
 
   sock.ev.on('creds.update', saveCreds)
 
+  sock.ev.on('contacts.upsert', (contacts) => {
+    for (const c of contacts) {
+      upsertContactInfo(c.id, c)
+    }
+  })
+
+  sock.ev.on('contacts.update', (updates) => {
+    for (const c of updates) {
+      upsertContactInfo(c.id, c)
+    }
+  })
+
+  sock.ev.on('messaging-history.set', ({ contacts }) => {
+    if (Array.isArray(contacts)) {
+      for (const c of contacts) {
+        upsertContactInfo(c.id, c)
+      }
+    }
+  })
+
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update
     if (qr && authMode === 'qr') {
@@ -179,26 +262,53 @@ async function startBot() {
   })
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return
-    const msg = messages[0]
-    if (!msg?.message) return
+    if (type !== 'notify' && type !== 'append') return
+    for (const msg of messages) {
+      if (!msg?.message || !msg.key?.id) continue
+      if (processedMsgIds.has(msg.key.id)) continue
+      processedMsgIds.add(msg.key.id)
+      if (processedMsgIds.size > 500) {
+        const firstKey = processedMsgIds.values().next().value
+        processedMsgIds.delete(firstKey)
+      }
 
-    const jid = msg.key.remoteJid
-    const text =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
-      msg.message.imageMessage?.caption ||
-      msg.message.videoMessage?.caption ||
-      ''
+      const msgTimestamp = Number(msg.messageTimestamp || 0)
+      if (msgTimestamp && Date.now() / 1000 - msgTimestamp > 45) continue
 
-    if (!text.startsWith('/')) return
+      const senderJid = msg.key.participant || msg.key.remoteJid
+      if (msg.pushName && senderJid) {
+        upsertContactInfo(senderJid, { notify: msg.pushName })
+      }
 
-    const [rawCmd, ...args] = text.trim().split(/\s+/)
-    const cmd = rawCmd.toLowerCase()
-    const argText = args.join(' ')
-    const contextInfo = msg.message?.extendedTextMessage?.contextInfo
-    const quotedMsg = contextInfo?.quotedMessage
-    const quotedParticipant = contextInfo?.participant || jid
+      const jid = msg.key.remoteJid
+      const mContent =
+        msg.message.ephemeralMessage?.message ||
+        msg.message.viewOnceMessage?.message ||
+        msg.message.viewOnceMessageV2?.message ||
+        msg.message
+
+      const text =
+        mContent?.conversation ||
+        mContent?.extendedTextMessage?.text ||
+        mContent?.imageMessage?.caption ||
+        mContent?.videoMessage?.caption ||
+        ''
+
+      if (!text.trim().startsWith('/')) continue
+
+      const [rawCmd, ...args] = text.trim().split(/\s+/)
+      const cmd = rawCmd.toLowerCase()
+      const argText = args.join(' ')
+      const contextInfo =
+        mContent?.extendedTextMessage?.contextInfo ||
+        mContent?.imageMessage?.contextInfo ||
+        mContent?.videoMessage?.contextInfo
+      const rawQuotedMsg = contextInfo?.quotedMessage
+      const quotedMsg =
+        rawQuotedMsg?.ephemeralMessage?.message ||
+        rawQuotedMsg?.viewOnceMessage?.message ||
+        rawQuotedMsg
+      const quotedParticipant = contextInfo?.participant || jid
 
     try {
       // 1. /q -> Quote message to 512x512 WebP Sticker
@@ -209,17 +319,41 @@ async function startBot() {
             { text: 'Bhai kisi message par *reply* karke /q likho taaki uska sticker ban sake!' },
             { quoted: msg },
           )
-          return
+          continue
         }
 
         const quotedText =
           quotedMsg.conversation ||
           quotedMsg.extendedTextMessage?.text ||
           quotedMsg.imageMessage?.caption ||
+          quotedMsg.videoMessage?.caption ||
           'Media Message'
 
-        const senderPhone = quotedParticipant ? quotedParticipant.split('@')[0] : 'Friend'
-        const senderName = msg.pushName && msg.key.fromMe ? msg.pushName : `~${senderPhone}`
+        const nestedContext = quotedMsg.extendedTextMessage?.contextInfo
+        const nestedQuoted = nestedContext?.quotedMessage
+        const nestedText =
+          nestedQuoted?.conversation ||
+          nestedQuoted?.extendedTextMessage?.text ||
+          ''
+        const nestedSender = nestedContext?.participant
+          ? resolveBestDisplayName(nestedContext.participant, sock.user)
+          : ''
+
+        // If in a group and we don't have the participant's name yet, check groupMetadata once
+        if (jid.endsWith('@g.us') && quotedParticipant) {
+          try {
+            const gMeta = await sock.groupMetadata(jid)
+            for (const p of gMeta.participants || []) {
+              if (p.id && (p.name || p.notify || p.verifiedName)) {
+                upsertContactInfo(p.id, p)
+              }
+            }
+          } catch {}
+        }
+
+        const senderName = resolveBestDisplayName(quotedParticipant, sock.user)
+        const avatarDataUrl = await fetchAvatarDataUrl(sock, quotedParticipant)
+        const phoneFallbackLabel = formatPhoneNumber(quotedParticipant)
         const themeArg = args[0]?.toLowerCase()
         const themeMap = {
           dark: 'whatsapp-dark',
@@ -232,25 +366,28 @@ async function startBot() {
         const webpSticker = await createQuoteStickerWebp({
           backendUrl: BACKEND_URL,
           senderName,
-          senderRole: jid.endsWith('@g.us') ? 'Group Chat' : 'Direct Chat',
+          senderRole: senderName !== phoneFallbackLabel ? phoneFallbackLabel : (jid.endsWith('@g.us') ? 'Group Chat' : 'Direct Chat'),
           messageText: quotedText,
+          repliedToName: nestedSender,
+          repliedToText: nestedText,
+          avatarDataUrl,
           themeSlug,
         })
 
         await sock.sendMessage(jid, { sticker: webpSticker }, { quoted: msg })
-        return
+        continue
       }
 
       // 2. /s or /sticker -> Photo to Sticker
       if (cmd === '/s' || cmd === '/sticker') {
-        const targetMessage = quotedMsg ? { message: quotedMsg } : msg
+        const targetMessage = quotedMsg ? { message: quotedMsg } : { message: mContent }
         if (!targetMessage.message?.imageMessage) {
           await sock.sendMessage(
             jid,
             { text: 'Kisi photo par reply karke /s likho ya photo ke caption mein /s bhejo!' },
             { quoted: msg },
           )
-          return
+          continue
         }
         const mediaBuffer = await downloadMediaMessage(targetMessage, 'buffer', {})
         const webp = await sharp(mediaBuffer)
@@ -258,7 +395,7 @@ async function startBot() {
           .webp({ quality: 90 })
           .toBuffer()
         await sock.sendMessage(jid, { sticker: webp }, { quoted: msg })
-        return
+        continue
       }
 
       // 3. /toimg -> Sticker to PNG Image
@@ -269,7 +406,7 @@ async function startBot() {
             { text: 'Kisi sticker par reply karke /toimg likho!' },
             { quoted: msg },
           )
-          return
+          continue
         }
         const stickerBuffer = await downloadMediaMessage({ message: quotedMsg }, 'buffer', {})
         const pngBuffer = await sharp(stickerBuffer).png().toBuffer()
@@ -278,14 +415,14 @@ async function startBot() {
           { image: pngBuffer, caption: 'Converted to HD PNG by QuotLy Bot' },
           { quoted: msg },
         )
-        return
+        continue
       }
 
       // 4. /tagall -> Mention everyone in group
       if (cmd === '/tagall') {
         if (!jid.endsWith('@g.us')) {
           await sock.sendMessage(jid, { text: '/tagall sirf WhatsApp Groups mein kaam karta hai!' }, { quoted: msg })
-          return
+          continue
         }
         const groupMeta = await sock.groupMetadata(jid)
         const mentions = groupMeta.participants.map((p) => p.id)
@@ -298,7 +435,7 @@ async function startBot() {
           },
           { quoted: msg },
         )
-        return
+        continue
       }
 
       // 5. /help -> List all commands from Backend
@@ -320,6 +457,7 @@ async function startBot() {
       }
     } catch (err) {
       console.error('Command error:', err)
+    }
     }
   })
 }
