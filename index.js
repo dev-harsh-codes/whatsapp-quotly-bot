@@ -1,4 +1,5 @@
 import makeWASocket, {
+  Browsers,
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
@@ -11,13 +12,14 @@ import sharp from 'sharp'
 import { createQuoteStickerWebp } from './src/quoteSticker.js'
 
 const PORT = process.env.PORT || 8080
-const BACKEND_URL = process.env.BOT_BACKEND_URL || 'https://ta-01m6da85d51j1wk6fge1gmby0v-1380-yffpduldc7jqjk00cb80baym5.makeproxy-m.figma.site'
-const PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
+const BACKEND_URL = process.env.BOT_BACKEND_URL || 'https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site'
+let PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
 const DEFAULT_THEME = process.env.DEFAULT_QUOTE_THEME || 'whatsapp-dark'
 
 let latestQrDataUrl = null
 let latestPairingCode = null
 let connectionState = 'initializing'
+let activeSock = null
 
 const app = express()
 
@@ -27,13 +29,15 @@ app.get('/', (_req, res) => {
     <head>
       <meta charset="utf-8" />
       <title>QuotLy Bhai WhatsApp Bot - Heroku Status</title>
-      <meta http-equiv="refresh" content="6" />
+      <meta http-equiv="refresh" content="8" />
       <style>
         body { font-family: system-ui, sans-serif; background: #0b141a; color: #e9edef; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
         .card { background: #1f2c34; padding: 32px; border-radius: 20px; max-width: 440px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
         .badge { display: inline-block; padding: 6px 14px; border-radius: 999px; background: #00a884; color: #fff; font-weight: 700; font-size: 13px; margin-bottom: 16px; }
         .code { font-size: 28px; letter-spacing: 6px; font-weight: 800; color: #53bdeb; background: #121b22; padding: 14px 20px; border-radius: 12px; margin: 16px 0; }
         img { border-radius: 12px; background: #fff; padding: 12px; margin-top: 12px; }
+        .btn { display: inline-block; margin-top: 12px; padding: 10px 18px; border-radius: 10px; background: #00a884; color: #fff; text-decoration: none; font-weight: 700; font-size: 13px; border: none; cursor: pointer; }
+        input { padding: 10px 12px; border-radius: 10px; border: 1px solid #334155; background: #121b22; color: #fff; width: 70%; margin-top: 10px; }
       </style>
     </head>
     <body>
@@ -41,12 +45,33 @@ app.get('/', (_req, res) => {
         <div class="badge">Status: ${connectionState.toUpperCase()}</div>
         <h2>QuotLy Bhai WhatsApp Bot</h2>
         <p>Connected Backend: <code>${BACKEND_URL}</code></p>
-        ${latestPairingCode ? `<p>Enter this Pairing Code in WhatsApp &rarr; Linked Devices:</p><div class="code">${latestPairingCode}</div>` : ''}
+        ${latestPairingCode && connectionState !== 'open' ? `<p>Enter this Pairing Code in WhatsApp &rarr; Linked Devices:</p><div class="code">${latestPairingCode}</div>` : ''}
         ${latestQrDataUrl && connectionState !== 'open' ? `<p>Or scan this WhatsApp QR Code:</p><img src="${latestQrDataUrl}" width="240" height="240" />` : ''}
+        ${connectionState !== 'open' ? `
+          <form action="/pair" method="GET" style="margin-top:16px;">
+            <input type="text" name="phone" value="${PAIRING_NUMBER}" placeholder="919341384908" />
+            <br/>
+            <button type="submit" class="btn">Generate Fresh Pairing Code</button>
+          </form>
+        ` : ''}
         ${connectionState === 'open' ? '<p style="color:#22c55e;font-weight:700;">WhatsApp Bot is Online & Ready for /q commands!</p>' : ''}
       </div>
     </body>
   </html>`)
+})
+
+app.get('/pair', async (req, res) => {
+  const phone = String(req.query.phone || PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
+  if (phone) PAIRING_NUMBER = phone
+  if (activeSock && PAIRING_NUMBER && !activeSock.authState.creds.registered) {
+    try {
+      const code = await activeSock.requestPairingCode(PAIRING_NUMBER)
+      latestPairingCode = code?.match(/.{1,4}/g)?.join('-') || code
+    } catch (err) {
+      console.error('Pairing request error:', err.message)
+    }
+  }
+  res.redirect('/')
 })
 
 app.get('/health', (_req, res) => {
@@ -66,8 +91,9 @@ async function startBot() {
     logger: pino({ level: 'silent' }),
     printQRInTerminal: !PAIRING_NUMBER,
     auth: state,
-    browser: ['QuotLy Bhai Bot', 'Chrome', '120.0.0'],
+    browser: Browsers.ubuntu('Chrome'),
   })
+  activeSock = sock
 
   if (PAIRING_NUMBER && !sock.authState.creds.registered) {
     setTimeout(async () => {
