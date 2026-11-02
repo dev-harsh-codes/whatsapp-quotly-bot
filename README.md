@@ -1,6 +1,6 @@
 # QuotLy Bhai WhatsApp Bot (Heroku + GitHub Auto-Deploy)
 
-Yeh repository tumhare **WhatsApp `/q` Quote-to-Sticker Bot** ka complete Node.js (Baileys) worker hai jo tumhare **Payload CMS + Sharp Backend** (`https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site`) se connected hai.
+Yeh repository tumhare **WhatsApp `/q` Quote-to-Sticker Bot** ka complete Node.js (Baileys) worker hai jo tumhare **Payload CMS + Sharp Backend** (`https://app-bclfvhxxejkooh6yxxca2zbxsxwuqwganispe2yc5tcb52wfwwha.makeproxy-c.figma.site`) se connected hai.
 
 ## Features
 - **`/q` (Reply to any message):** Quoted message ka sender name, avatar, nested reply, aur timestamp lekar **512x512 transparent WebP sticker** banata hai (`/q`, `/q neon`, `/q telegram`, `/q light`).
@@ -17,5 +17,5 @@ Yeh repository tumhare **WhatsApp `/q` Quote-to-Sticker Bot** ka complete Node.j
 4. **Automatic deploys** ko **Enable** kar do (taaki jab bhi hum dashboard se GitHub par push karein, Heroku khud deploy kar de!).
 5. **Settings** tab -> **Reveal Config Vars** mein ye set karo:
    - `PAIRING_NUMBER`: Apna WhatsApp number country code ke saath (jaise `919876543210`)
-   - `BOT_BACKEND_URL`: `https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site`
+   - `BOT_BACKEND_URL`: `https://app-bclfvhxxejkooh6yxxca2zbxsxwuqwganispe2yc5tcb52wfwwha.makeproxy-c.figma.site`
 6. **Deploy Branch** par click karo aur apne Heroku app URL (`https://<your-app>.herokuapp.com`) ko open karke **8-digit Pairing Code** ya **QR Code** se WhatsApp link kar lo!
