@@ -507,7 +507,8 @@ async function generateGeminiReply({ prompt, quotedText = '', targetName = '', t
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
             generationConfig: {
               temperature: 0.8,
-              maxOutputTokens: isDetailed ? 400 : 120,
+              maxOutputTokens: isDetailed ? 600 : 280,
+              thinkingConfig: { thinkingBudget: 0 },
             },
           })
           let res = await fetch(url, {
