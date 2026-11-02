@@ -18,7 +18,7 @@
     "BOT_BACKEND_URL": {
       "description": "URL of your Payload CMS & /api/quote-sticker Backend",
       "required": true,
-      "value": "https://ta-01m6da85d51j1wk6fge1gmby0v-1380-yffpduldc7jqjk00cb80baym5.makeproxy-m.figma.site"
+      "value": "https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site"
     },
     "DEFAULT_QUOTE_THEME": {
       "description": "Default /q sticker theme slug (whatsapp-dark, telegram-quotly, neon-cyber, whatsapp-light)",
