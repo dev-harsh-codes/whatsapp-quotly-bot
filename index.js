@@ -126,10 +126,10 @@ async function fetchAvatarDataUrl(sock, jid) {
 async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
   const systemInstruction =
     mode === 'roast'
-      ? 'Tum ek witty, friendly Hinglish WhatsApp group bot ho. Diye gaye message par 1-2 line ka lighthearted, funny desi Hinglish roast likho (bina gali ke).'
+      ? 'Tum MODI CHATBOT ho aur bilkul Narendra Modi ji ke iconic bhashan wale tone mein Hinglish mein baat karte ho ("Mitron!", "Mere pyare deshwasiyon", "Bhaiyon aur behno", "Aapda mein avsar", "Atmanirbhar"). Diye gaye message par Modi ji ke andaaz mein 2-3 line ka funny, savage par clean roast likho.'
       : mode === 'qai'
-        ? 'Sirf 1 short punchy, funny Hinglish quote (max 18 words) likho jo WhatsApp sticker par mast lage. Koi extra explanation mat dena.'
-        : 'Tum QuotLy Bhai Bot ho — ek smart, helpful aur friendly Hinglish WhatsApp AI assistant. Short aur crisp Hinglish mein jawab do.'
+        ? 'Tum MODI CHATBOT ho. Bilkul Modi ji ke iconic tone ("Mitron...", "Bhaiyon aur behno...") mein sirf 1 short punchy, funny Hinglish line (max 18 words) likho jo WhatsApp sticker par mast lage. Koi extra explanation mat dena.'
+        : 'Tum MODI CHATBOT ho — tum hamesha Narendra Modi ji ke iconic speech tone aur style mein Hinglish mein jawab dete ho! Apne jawab ki shuruat "Mitron!", "Mere pyare deshwasiyon!", ya "Bhaiyon aur behno!" se karo, aur Modi ji ke signature phrases ("Dekhiye...", "140 crore deshwasi", "Atmanirbhar", "Digital India", "Amrit Kaal", "Aapda mein avsar") ka natural aur witty istemal karte hue short, crisp aur mazedar jawab do.'
 
   const userPrompt = quotedText
     ? `Quoted Message: "${quotedText}"\n\nUser Request: ${prompt || 'Reply to this'}`
@@ -531,8 +531,8 @@ async function startBot() {
         continue
       }
 
-      // 5. /ai -> Free Gemini 2.5 Flash Smart Hinglish Reply
-      if (cmd === '/ai' || cmd === '/ask') {
+      // 5. /ai or /modi -> MODI CHATBOT (Modi Ji Tone Reply)
+      if (cmd === '/ai' || cmd === '/modi' || cmd === '/ask') {
         const qText =
           quotedMsg?.conversation ||
           quotedMsg?.extendedTextMessage?.text ||
@@ -541,13 +541,13 @@ async function startBot() {
         if (!argText && !qText) {
           await sock.sendMessage(
             jid,
-            { text: 'Bhai /ai ke aage apna sawal likho ya kisi message par reply karke /ai bhejo!' },
+            { text: 'Mitron! /ai ya /modi ke aage apna sawal likho, ya kisi message par reply karke /ai bhejo!' },
             { quoted: msg },
           )
           continue
         }
         const aiAnswer = await generateGeminiReply({ prompt: argText, quotedText: qText, mode: 'ai' })
-        await sock.sendMessage(jid, { text: `*QuotLy AI:*\n\n${aiAnswer}` }, { quoted: msg })
+        await sock.sendMessage(jid, { text: `*MODI CHATBOT:*\n\n${aiAnswer}` }, { quoted: msg })
         continue
       }
 
@@ -566,7 +566,7 @@ async function startBot() {
           continue
         }
         const roastLine = await generateGeminiReply({ prompt: argText, quotedText: qText, mode: 'roast' })
-        await sock.sendMessage(jid, { text: `*Roast:* ${roastLine}` }, { quoted: msg })
+        await sock.sendMessage(jid, { text: `*MODI CHATBOT:*\n\n${roastLine}` }, { quoted: msg })
         continue
       }
 
@@ -587,7 +587,7 @@ async function startBot() {
         const webpSticker = await createQuoteStickerWebp({
           backendUrl: BACKEND_URL,
           senderName,
-          senderRole: 'QuotLy AI',
+          senderRole: 'MODI CHATBOT',
           messageText: aiQuote,
           avatarDataUrl,
           themeSlug: DEFAULT_THEME,
@@ -602,10 +602,10 @@ async function startBot() {
           jid,
           {
             text:
-              '*QuotLy Bhai WhatsApp Bot Commands*\n\n' +
+              '*MODI CHATBOT — WhatsApp Commands*\n\n' +
               '• */q* — Kisi bhi msg par reply karke sticker banao (/q, /q neon, /q telegram, /q light)\n' +
-              '• */ai <sawal>* — Gemini 2.5 Flash AI se kuch bhi pucho\n' +
-              '• */roast* — Kisi msg par reply karke funny Hinglish roast\n' +
+              '• */ai <sawal>* (ya */modi*) — MODI CHATBOT se Modi ji ke tone mein jawab lo\n' +
+              '• */roast* — Kisi msg par reply karke Modi ji style roast\n' +
               '• */qai <topic>* — AI se quote likhwa kar seedha sticker banao\n' +
               '• */s* — Photo ko 512x512 sticker banao\n' +
               '• */meme top | bottom* — Meme sticker banao\n' +
