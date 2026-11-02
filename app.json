@@ -1,0 +1,35 @@
+{
+  "name": "QuotLy Bhai WhatsApp Bot",
+  "description": "WhatsApp Bot with /q Quote-to-Sticker, /s Media Sticker, /meme, /toimg, /tagall and Payload CMS Live Sync.",
+  "repository": "https://github.com/your-username/whatsapp-quotly-bot",
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "quotly",
+    "sticker-bot",
+    "heroku"
+  ],
+  "env": {
+    "PAIRING_NUMBER": {
+      "description": "Your WhatsApp phone number with country code (no + or spaces, e.g. 919876543210) to get an 8-digit Pairing Code in logs & web status page",
+      "required": false,
+      "value": ""
+    },
+    "BOT_BACKEND_URL": {
+      "description": "URL of your Payload CMS & /api/quote-sticker Backend",
+      "required": true,
+      "value": "https://ta-01m6da85d51j1wk6fge1gmby0v-1380-yffpduldc7jqjk00cb80baym5.makeproxy-m.figma.site"
+    },
+    "DEFAULT_QUOTE_THEME": {
+      "description": "Default /q sticker theme slug (whatsapp-dark, telegram-quotly, neon-cyber, whatsapp-light)",
+      "required": false,
+      "value": "whatsapp-dark"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  }
+}
