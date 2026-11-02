@@ -173,21 +173,37 @@ async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
       for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest']) {
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(activeKey)}`
-          const res = await fetch(url, {
+          const payloadBody = JSON.stringify({
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: {
+              temperature: 0.8,
+              maxOutputTokens: isDetailed ? 400 : 120,
+            },
+          })
+          let res = await fetch(url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'x-goog-api-key': activeKey,
             },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: systemInstruction }] },
-              contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-              generationConfig: {
-                temperature: 0.8,
-                maxOutputTokens: isDetailed ? 400 : 120,
-              },
-            }),
+            body: payloadBody,
           })
+          // If AQ. key requires Bearer header instead of query key
+          if (!res.ok && activeKey.startsWith('AQ.')) {
+            res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${activeKey}`,
+                  'x-goog-api-key': activeKey,
+                },
+                body: payloadBody,
+              },
+            )
+          }
           if (res.ok) {
             const data = await res.json()
             const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim()
@@ -210,6 +226,7 @@ async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: backupModel,
+          seed: Math.floor(Math.random() * 999999),
           messages: [
             { role: 'system', content: systemInstruction },
             { role: 'user', content: userPrompt },
