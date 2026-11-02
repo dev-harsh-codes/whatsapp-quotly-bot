@@ -14,11 +14,36 @@ import sharp from 'sharp'
 import { createQuoteStickerWebp } from './src/quoteSticker.js'
 
 const PORT = process.env.PORT || 8080
-const BACKEND_URL = process.env.BOT_BACKEND_URL || 'https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site'
+const BACKEND_URL = process.env.BOT_BACKEND_URL || 'https://app-bclfvhxxejkooh6yxxca2zbxsxwuqwganispe2yc5tcb52wfwwha.makeproxy-c.figma.site'
 let PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
 const DEFAULT_THEME = process.env.DEFAULT_QUOTE_THEME || 'whatsapp-dark'
-const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || process.env.APP_GEMINI_API_KEY || '').trim()
 const AUTH_DIR = './auth_info_baileys'
+
+// Collect up to 5+ Gemini API keys (supports GEMINI_API_KEY_1..5 OR comma-separated GEMINI_API_KEY)
+const GEMINI_KEYS = Array.from(
+  new Set(
+    [
+      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_1,
+      process.env.GEMINI_API_KEY_2,
+      process.env.GEMINI_API_KEY_3,
+      process.env.GEMINI_API_KEY_4,
+      process.env.GEMINI_API_KEY_5,
+      process.env.APP_GEMINI_API_KEY,
+    ]
+      .filter(Boolean)
+      .flatMap((v) => String(v).split(/[,;\s]+/))
+      .map((k) => k.trim())
+      .filter(Boolean),
+  ),
+)
+let keyRotationIndex = 0
+
+function wantsDetailedAnswer(text = '') {
+  return /(explain|detail|acha se|ache se|achha se|elaborate|step by step|pura bata|lamba|vistar|code)/i.test(
+    String(text),
+  )
+}
 
 let latestQrDataUrl = null
 let latestPairingCode = null
@@ -124,68 +149,82 @@ async function fetchAvatarDataUrl(sock, jid) {
 }
 
 async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
+  const isDetailed = wantsDetailedAnswer(`${prompt} ${quotedText}`)
+  const lengthRule = isDetailed
+    ? 'User ne detail/ache se explain karne bola hai, toh Modi ji ke tone mein ache se samjhao.'
+    : 'STRICT RULE: Jawab SIRF 2 se 3 short lines (maximum 35-45 words) mein hi dena! Bada paragraph bilkul mat likhna. Chhota, punchy aur witty 2-3 line mein baat khatam karo.'
+
   const systemInstruction =
     mode === 'roast'
-      ? 'Tum MODI CHATBOT ho aur bilkul Narendra Modi ji ke iconic bhashan wale tone mein Hinglish mein baat karte ho ("Mitron!", "Mere pyare deshwasiyon", "Bhaiyon aur behno", "Aapda mein avsar", "Atmanirbhar"). Diye gaye message par Modi ji ke andaaz mein 2-3 line ka funny, savage par clean roast likho.'
+      ? 'Tum MODI CHATBOT ho aur bilkul Narendra Modi ji ke iconic bhashan wale tone mein Hinglish mein baat karte ho ("Mitron!", "Mere pyare deshwasiyon", "Bhaiyon aur behno"). Diye gaye message par Modi ji ke andaaz mein SIRF 2 short lines ka funny, savage roast likho.'
       : mode === 'qai'
         ? 'Tum MODI CHATBOT ho. Bilkul Modi ji ke iconic tone ("Mitron...", "Bhaiyon aur behno...") mein sirf 1 short punchy, funny Hinglish line (max 18 words) likho jo WhatsApp sticker par mast lage. Koi extra explanation mat dena.'
-        : 'Tum MODI CHATBOT ho — tum hamesha Narendra Modi ji ke iconic speech tone aur style mein Hinglish mein jawab dete ho! Apne jawab ki shuruat "Mitron!", "Mere pyare deshwasiyon!", ya "Bhaiyon aur behno!" se karo, aur Modi ji ke signature phrases ("Dekhiye...", "140 crore deshwasi", "Atmanirbhar", "Digital India", "Amrit Kaal", "Aapda mein avsar") ka natural aur witty istemal karte hue short, crisp aur mazedar jawab do.'
+        : `Tum MODI CHATBOT ho — tum hamesha Narendra Modi ji ke iconic speech tone aur style mein Hinglish mein jawab dete ho! ("Mitron!", "Mere pyare deshwasiyon!", "Bhaiyon aur behno!"). ${lengthRule}`
 
   const userPrompt = quotedText
     ? `Quoted Message: "${quotedText}"\n\nUser Request: ${prompt || 'Reply to this'}`
     : prompt
 
-  // 1. Direct Gemini Free Tier call (supports both AQ... auth keys and AIza... keys)
-  if (GEMINI_API_KEY) {
-    for (const model of ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash']) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': GEMINI_API_KEY,
-          },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            generationConfig: { temperature: 0.8, maxOutputTokens: 350 },
-          }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim()
-          if (text) return text
-        } else {
-          console.warn(`[Gemini ${model}] HTTP ${res.status}:`, (await res.text()).slice(0, 120))
+  // 1. Round-Robin across all configured Gemini API keys (GEMINI_API_KEY_1..5 or comma-separated)
+  if (GEMINI_KEYS.length > 0) {
+    const startIdx = keyRotationIndex++ % GEMINI_KEYS.length
+    for (let offset = 0; offset < GEMINI_KEYS.length; offset++) {
+      const activeKey = GEMINI_KEYS[(startIdx + offset) % GEMINI_KEYS.length]
+      for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest']) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(activeKey)}`
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': activeKey,
+            },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: systemInstruction }] },
+              contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+              generationConfig: {
+                temperature: 0.8,
+                maxOutputTokens: isDetailed ? 400 : 120,
+              },
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim()
+            if (text) return text
+          } else {
+            console.warn(`[Key #${((startIdx + offset) % GEMINI_KEYS.length) + 1} ${model}] HTTP ${res.status}`)
+          }
+        } catch (err) {
+          console.warn(`[Key #${((startIdx + offset) % GEMINI_KEYS.length) + 1} ${model}] failed:`, err.message)
         }
-      } catch (err) {
-        console.warn(`[Gemini ${model}] failed:`, err.message)
       }
     }
   }
 
-  // 2. Built-in Keyless Free AI Engine (Works 100% even if GEMINI_API_KEY is missing or invalid!)
-  try {
-    const pollRes = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'openai',
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.8,
-      }),
-    })
-    if (pollRes.ok) {
-      const pollData = await pollRes.json()
-      const reply = pollData?.choices?.[0]?.message?.content?.trim()
-      if (reply) return reply
+  // 2. Multi-model Keyless Free AI Backup Pool (rotates models so it never overloads)
+  for (const backupModel of ['openai', 'mistral', 'llama']) {
+    try {
+      const pollRes = await fetch('https://text.pollinations.ai/openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: backupModel,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.8,
+        }),
+      })
+      if (pollRes.ok) {
+        const pollData = await pollRes.json()
+        const reply = pollData?.choices?.[0]?.message?.content?.trim()
+        if (reply) return reply
+      }
+    } catch (err) {
+      console.warn(`[Backup ${backupModel}] error:`, err.message)
     }
-  } catch (err) {
-    console.warn('[Fallback AI] error:', err.message)
   }
 
   return 'Mitron! 140 crore deshwasiyon ke ek saath sawal puchne se server par thoda load hai, kripya 5 second baad punah prayaas karein!'
