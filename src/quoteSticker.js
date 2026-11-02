@@ -73,6 +73,7 @@ export async function createQuoteStickerWebp({
   messageText,
   repliedToName,
   repliedToText,
+  avatarDataUrl,
   themeSlug = 'whatsapp-dark',
 }) {
   // 1. First try the connected Payload + Sharp Backend API (logs sticker & uses CMS theme)
@@ -87,6 +88,7 @@ export async function createQuoteStickerWebp({
           messageText,
           repliedToName,
           repliedToText,
+          avatarDataUrl,
           themeSlug,
           source: 'heroku-bot',
         }),
@@ -106,6 +108,10 @@ export async function createQuoteStickerWebp({
   const safeRole = escapeXml((senderRole || '').slice(0, 24))
   const rawMsg = String(messageText || 'Quoted message').slice(0, 280)
   const hasReply = Boolean(repliedToName || repliedToText)
+  const safeAvatar =
+    avatarDataUrl && String(avatarDataUrl).startsWith('data:image/')
+      ? escapeXml(String(avatarDataUrl))
+      : ''
 
   const fontSize = rawMsg.length < 45 ? 24 : rawMsg.length < 110 ? 20 : 17
   const lineHeight = Math.round(fontSize * 1.38)
@@ -128,8 +134,15 @@ export async function createQuoteStickerWebp({
     .join('\n')
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+    <defs>
+      <clipPath id="dpClip">
+        <circle cx="44" cy="${bubbleY + 32}" r="28" />
+      </clipPath>
+    </defs>
     <circle cx="44" cy="${bubbleY + 32}" r="28" fill="${theme.nameColor}" />
     <text x="44" y="${bubbleY + 39}" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="20" font-weight="bold">${initials}</text>
+    ${safeAvatar ? `<image href="${safeAvatar}" x="16" y="${bubbleY + 4}" width="56" height="56" preserveAspectRatio="xMidYMid slice" clip-path="url(#dpClip)" />` : ''}
+    <circle cx="64" cy="${bubbleY + 52}" r="7" fill="#22c55e" stroke="${theme.bubbleBg}" stroke-width="2.5" />
     <path d="M ${bubbleX - 12} ${bubbleY + 18} L ${bubbleX + 4} ${bubbleY + 18} L ${bubbleX + 4} ${bubbleY + 36} Z" fill="${theme.bubbleBg}" />
     <rect x="${bubbleX}" y="${bubbleY}" width="${bubbleWidth}" height="${bubbleHeight}" rx="22" ry="22" fill="${theme.bubbleBg}" />
     <text x="${bubbleX + 20}" y="${bubbleY + 32}" fill="${theme.nameColor}" font-family="sans-serif" font-size="18" font-weight="bold">${safeSender}</text>
