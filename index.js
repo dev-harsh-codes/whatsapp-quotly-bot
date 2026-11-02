@@ -17,6 +17,7 @@ const PORT = process.env.PORT || 8080
 const BACKEND_URL = process.env.BOT_BACKEND_URL || 'https://app-swh26tpxllax7tyvm7gtplqlscdzvz5uwrgo2nycfeq55jk2zrmq.makeproxy-c.figma.site'
 let PAIRING_NUMBER = (process.env.PAIRING_NUMBER || '').replace(/[^0-9]/g, '')
 const DEFAULT_THEME = process.env.DEFAULT_QUOTE_THEME || 'whatsapp-dark'
+const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || process.env.APP_GEMINI_API_KEY || '').trim()
 const AUTH_DIR = './auth_info_baileys'
 
 let latestQrDataUrl = null
@@ -120,6 +121,61 @@ async function fetchAvatarDataUrl(sock, jid) {
   } catch {
     return undefined
   }
+}
+
+async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
+  const systemInstruction =
+    mode === 'roast'
+      ? 'Tum ek witty, friendly Hinglish WhatsApp group bot ho. Diye gaye message par 1-2 line ka lighthearted, funny desi Hinglish roast likho (bina gali ke).'
+      : mode === 'qai'
+        ? 'Sirf 1 short punchy, funny Hinglish quote (max 18 words) likho jo WhatsApp sticker par mast lage. Koi extra explanation mat dena.'
+        : 'Tum QuotLy Bhai Bot ho — ek smart, helpful aur friendly Hinglish WhatsApp AI assistant. Short aur crisp Hinglish mein jawab do.'
+
+  const userPrompt = quotedText
+    ? `Quoted Message: "${quotedText}"\n\nUser Request: ${prompt || 'Reply to this'}`
+    : prompt
+
+  // 1. Direct Gemini Free Tier call if GEMINI_API_KEY is set in Heroku Config Vars
+  if (GEMINI_API_KEY) {
+    for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash']) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: { temperature: 0.8, maxOutputTokens: 350 },
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim()
+          if (text) return text
+        }
+      } catch (err) {
+        console.warn(`[Gemini ${model}] failed:`, err.message)
+      }
+    }
+  }
+
+  // 2. Fallback to Make Backend /api/ai-reply (which uses APP_GEMINI_API_KEY)
+  if (BACKEND_URL && !BACKEND_URL.includes('localhost')) {
+    try {
+      const res = await fetch(`${BACKEND_URL.replace(/\/$/, '')}/api/ai-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, quotedText, mode }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.reply) return data.reply
+      }
+    } catch {}
+  }
+
+  return 'AI key set nahi hai! Heroku Config Vars mein GEMINI_API_KEY daalo (Google AI Studio ki free key).'
 }
 
 function clearAuthFolder() {
@@ -475,6 +531,71 @@ async function startBot() {
         continue
       }
 
+      // 5. /ai -> Free Gemini 2.5 Flash Smart Hinglish Reply
+      if (cmd === '/ai' || cmd === '/ask') {
+        const qText =
+          quotedMsg?.conversation ||
+          quotedMsg?.extendedTextMessage?.text ||
+          quotedMsg?.imageMessage?.caption ||
+          ''
+        if (!argText && !qText) {
+          await sock.sendMessage(
+            jid,
+            { text: 'Bhai /ai ke aage apna sawal likho ya kisi message par reply karke /ai bhejo!' },
+            { quoted: msg },
+          )
+          continue
+        }
+        const aiAnswer = await generateGeminiReply({ prompt: argText, quotedText: qText, mode: 'ai' })
+        await sock.sendMessage(jid, { text: `*QuotLy AI:*\n\n${aiAnswer}` }, { quoted: msg })
+        continue
+      }
+
+      // 6. /roast -> Friendly Hinglish Roast on Quoted Message
+      if (cmd === '/roast') {
+        const qText =
+          quotedMsg?.conversation ||
+          quotedMsg?.extendedTextMessage?.text ||
+          argText
+        if (!qText) {
+          await sock.sendMessage(
+            jid,
+            { text: 'Kisi dost ke message par reply karke /roast likho!' },
+            { quoted: msg },
+          )
+          continue
+        }
+        const roastLine = await generateGeminiReply({ prompt: argText, quotedText: qText, mode: 'roast' })
+        await sock.sendMessage(jid, { text: `*Roast:* ${roastLine}` }, { quoted: msg })
+        continue
+      }
+
+      // 7. /qai -> Generate AI Quote & Send as 512x512 Sticker!
+      if (cmd === '/qai') {
+        const qText =
+          quotedMsg?.conversation ||
+          quotedMsg?.extendedTextMessage?.text ||
+          ''
+        const aiQuote = await generateGeminiReply({
+          prompt: argText || 'Ek funny backbencher ya coding quote likho',
+          quotedText: qText,
+          mode: 'qai',
+        })
+        const targetJid = quotedParticipant || senderJid
+        const senderName = resolveBestDisplayName(targetJid, sock.user)
+        const avatarDataUrl = await fetchAvatarDataUrl(sock, targetJid)
+        const webpSticker = await createQuoteStickerWebp({
+          backendUrl: BACKEND_URL,
+          senderName,
+          senderRole: 'QuotLy AI',
+          messageText: aiQuote,
+          avatarDataUrl,
+          themeSlug: DEFAULT_THEME,
+        })
+        await sock.sendMessage(jid, { sticker: webpSticker }, { quoted: msg })
+        continue
+      }
+
       // 5. /help -> List all commands from Backend
       if (cmd === '/help' || cmd === '/menu') {
         await sock.sendMessage(
@@ -483,11 +604,13 @@ async function startBot() {
             text:
               '*QuotLy Bhai WhatsApp Bot Commands*\n\n' +
               '• */q* — Kisi bhi msg par reply karke sticker banao (/q, /q neon, /q telegram, /q light)\n' +
+              '• */ai <sawal>* — Gemini 2.5 Flash AI se kuch bhi pucho\n' +
+              '• */roast* — Kisi msg par reply karke funny Hinglish roast\n' +
+              '• */qai <topic>* — AI se quote likhwa kar seedha sticker banao\n' +
               '• */s* — Photo ko 512x512 sticker banao\n' +
               '• */meme top | bottom* — Meme sticker banao\n' +
               '• */toimg* — Sticker ko wapas photo banao\n' +
-              '• */tagall* — Group mein sabko mention karo\n' +
-              '• */ai <sawal>* — Smart AI reply',
+              '• */tagall* — Group mein sabko mention karo',
           },
           { quoted: msg },
         )
