@@ -55,6 +55,332 @@ let authMode = 'qr' // 'qr' or 'pair' — never run both on the same socket!
 const contactDirectory = new Map() // jid -> { name, notify, verifiedName }
 const processedMsgIds = new Set()
 
+const CAMPUS_LORE = "IIIT Bhagalpur — Mechatronics (MAE) 1st Year Batch Context:\n- Group Name: \"Mechatronics Student Group\" (pehle \"मेकाट्रॉनिक्स छात्र समूह\" aur \"मेकाट्रॉनिकी-छात्रसमूहः\" rakha gaya tha).\n- Professors Lore:\n  * PKT Sir (Purnendu Sir): Sabse khatarnak prof, mass bunk karne par extra class lagate hain aur campus ke bahar ghumte hue bacho ko pakad lete hain.\n  * Nehal Sir: CS101 (C Programming) padhate hain, 1 ghante mein bas 2 doubtful question karate hain.\n  * Raunak Sir: Maths (Vector Space & Matrices) padhate hain, har baat pe bolte hain \"HOD se baat karna padega\".\n  * Rajan Sir: Engineering Graphics / SolidWorks padhate hain (sirf scale banana sikhaya).\n  * Anita Chandra Ma'am: Mid-sem paper banati hain.\n- Batch Culture: Har hafte Mass Bunk ke liye 10 polls bante hain (4 se 18 chutti), phir bhi 2-4 gaddar class chale jaate hain. CR ki kursi ke liye roz drama aur resignation chalta hai."
+const STUDENT_KUNDALIS = [
+  {
+    "id": "shaurya-malik",
+    "name": "Shaurya Malik",
+    "aliases": [
+      "shaurya malik",
+      "malik",
+      "siyar",
+      "boys cr"
+    ],
+    "phones": [],
+    "title": "Boys CR & Serial Resigner (1549+ msgs)",
+    "kundali": "Group creator aur Boys CR. Har hafte \"Respected sir, I have left the position of CR\" bolke resign karta hai aur wapas CR ban jata hai. SolidWorks aur Rajan sir ke assignments forward karta hai. Mass bunk polls banata hai par Harsh kehta hai ye chhup ke sab padh ke baitha hai. 108 vs 10.8 marks wala legend."
+  },
+  {
+    "id": "harsh-shourya",
+    "name": "Harsh / Shourya Narayan",
+    "aliases": [
+      "harsh",
+      "shourya",
+      "shourya narayan",
+      "𝐇𝐀𝐑𝐒𝐇"
+    ],
+    "phones": [
+      "919341384908"
+    ],
+    "title": "Bot Mastermind, 15 Fake IDs & Poll King (1650+ msgs)",
+    "kundali": "MODI CHATBOT ka malik aur creator. 15 virtual IDs se polls aur classes join karta hai. Khud ko \"Green Flag\" aur apni biwi ko bhi green flag batata hai. Shaurya Malik ko \"CR ki kursi leke jao\" aur \"gaddar CR sab padh ke baitha hai\" bolke roast karta hai. Sabko Google One 5TB aur Gemini Pro baant-ta hai."
+  },
+  {
+    "id": "anshika",
+    "name": "Anshika Singh (Maharani CR)",
+    "aliases": [
+      "anshika",
+      "maharani",
+      "pradesh ki maharani",
+      "iiit mechantronics pradesh ki maharani"
+    ],
+    "phones": [],
+    "title": "Mechatronics Pradesh Ki Maharani & Girl CR (764+ msgs)",
+    "kundali": "Batch ki Girl CR (\"IIIT Mechatronics Pradesh Ki Maharani\"). Maam aur PKT sir se baat karke classes cancel/reschedule karwati hai. Har message mein 🥀 aur 😭 lagati hai (\"Dekh lenge hume bhagte hue fir pitenge hum 🥀\"). Kabhi group settings \"Only Admins\" karti hai jab shor badh jata hai."
+  },
+  {
+    "id": "shivam",
+    "name": "Shivam Bhai",
+    "aliases": [
+      "shivam",
+      "shivam bhai"
+    ],
+    "phones": [],
+    "title": "Protest Leader & Party Mangne Wala (704+ msgs)",
+    "kundali": "Har baat pe \"PROTEST karna padega\" aur CRs se party mangta hai (\"When MNC CR was appointed, he gave party\", \"Laban Kumar aura farmers party date and venue\"). Catchphrases: \"Hey Prabhu kaha the aap\", \"screenshot naamak feature ka use kare\", aur Shaurya Malik ko \"lal dil gulabi dil 💋\" bhejta hai."
+  },
+  {
+    "id": "avii",
+    "name": "Avii",
+    "aliases": [
+      "avii",
+      "8292643029"
+    ],
+    "phones": [
+      "918292643029"
+    ],
+    "title": "Aura Emperor (\"I am Aura\") (369+ msgs)",
+    "kundali": "Famous dialogue: \"Skyler I dont need aura, I am aura\". Hostel mein hi rehta hai, ghar nahi jata (\"mai toh ghar bhi nhi jaa rha, full support to masses\"). Kehta hai \"CSEtards taking notes from us\" aur \"कोटि कोटि नमन humare batch ko\"."
+  },
+  {
+    "id": "satyam-chandel",
+    "name": "Satyam Raj (Satyam Chandel)",
+    "aliases": [
+      "satyam",
+      "chandel",
+      "aurangabad",
+      "satyam raj"
+    ],
+    "phones": [],
+    "title": "Aurangabad Philosopher & AC Train Traveller (287+ msgs)",
+    "kundali": "Aurangabad (Gaya ke aage) se hai. General ya sleeper mein nahi jata (\"TT aata hai yrr\"). Bade-bade philosophical aur savage taunts marta hai (\"Musketeers of truth veiled in lies\", \"3 LPA ka reference kaise milega jute chaat ke\", \"makhanchor\"). Notification history hamesha ON rakhta hai taaki deleted messages pakad sake."
+  },
+  {
+    "id": "saksham",
+    "name": "Saksham (Roll 233)",
+    "aliases": [
+      "saksham",
+      "233"
+    ],
+    "phones": [],
+    "title": "Ranked Match Gamer & Coder (276+ msgs)",
+    "kundali": "C programming ke codes khud banata hai par classes se sakt nafrat hai: \"Top pe tho mai hu muje kisi bhi class mai interest nahi hai\" aur \"Bhaad mai jaaye, mai nahi jaa raha, waise bhi ranked match mai hu\". Group ka pehla rule isi ne likha tha ki kisi prof ya senior ko mat add karna."
+  },
+  {
+    "id": "soumanka",
+    "name": "Soumanka",
+    "aliases": [
+      "soumanka",
+      "8910128058"
+    ],
+    "phones": [
+      "918910128058"
+    ],
+    "title": "Kurkure Daan & Chicken Hartal Legend (231+ msgs)",
+    "kundali": "Har baat mein \"Malik\" bolta hai (\"Udhari ki zindagi hai malik\", \"Explore ke naam pe bas Windows browser chalaya hu malik\"). Anshika se kehta hai \"10-20 rupay daan me dena Kurkure khaunga\". Famous lines: \"Mai chicken khake hartal karunga\", \"Shaurya ko BTech Chaiwala banao\", aur \"Jamming session on Trunkut\"."
+  },
+  {
+    "id": "laban",
+    "name": "Laban Kumar",
+    "aliases": [
+      "laban",
+      "9608510910"
+    ],
+    "phones": [
+      "919608510910"
+    ],
+    "title": "New CR & Mass Bunk Coordinator (229+ msgs)",
+    "kundali": "Baad mein CR / coordinator bana (\"Don't rush, I will inform you mass bunk date\", \"Everyone come in 202\"). Raunak sir ke Vector Space & Matrices ke notes bhejta hai aur C programming mein sabki madad karta hai. Shivam isse \"Aura Farmers Party\" mangta rehta hai."
+  },
+  {
+    "id": "dhruv",
+    "name": "Dhruv",
+    "aliases": [
+      "dhruv"
+    ],
+    "phones": [],
+    "title": "Guard Bhaiya Alumni Joke & Rajgrahan King (185+ msgs)",
+    "kundali": "Deadpan sarcasm king: \"Maine bahar guard bhaiya se poocha tha wo IIIT Mechatronics ke alumni nikle\" aur \"Aaj subah 6 baje se raat ke 9:45 tak classes hai\". Khud ke \"Rajgrahan\" ke liye Tameshwar sir ko DM karwata hai."
+  },
+  {
+    "id": "parth-patel",
+    "name": "Parth Patel",
+    "aliases": [
+      "parth",
+      "patel"
+    ],
+    "phones": [],
+    "title": "Chhata Chor Victim & Shayari King (158+ msgs)",
+    "kundali": "CS class ke 2nd bench se iska eklauta chhata (umbrella) chori ho gaya tha (\"Ek hi chata laya hu 🥲\"). CR par shayari marta hai: \"Jo na bana kisi ka saiyan wohi hai humare CR bhaiya\". Dandiya nights ke pass dhoondhta rehta hai."
+  },
+  {
+    "id": "shubham-jhunjhun",
+    "name": "Shubham (Jhunjhunu 139)",
+    "aliases": [
+      "jhunjhun",
+      "139",
+      "shubham jhunjhun"
+    ],
+    "phones": [],
+    "title": "Self-Declared Student Representative (156+ msgs)",
+    "kundali": "Khud ko \"Student Representative\" ghoshit kar chuka hai. Mass bunk ka sabse bada supporter (\"4 se 18 confirm hai koi poll nhi\"). Famous lines: \"Pikachu hum tumhe chunte hai\" aur \"Ek raat main paas hue hai bhai\"."
+  },
+  {
+    "id": "sakshi",
+    "name": "Sakshi",
+    "aliases": [
+      "sakshi",
+      "sakshii"
+    ],
+    "phones": [],
+    "title": "Mass Bunk Extender & \"Paper Khali Chhodenge\" Leader (134+ msgs)",
+    "kundali": "Har message mein 🙃, 👉👈 aur 🤧 lagati hai. C programming aur lab cancel karwane ke liye hamesha ready (\"Okkiee kr do yr cancel ni jaana mujhe 😭\", \"hum paper khaali chorke aayenge\"). Chhath Puja aur Dussehra ki chutti sabse pehle puchti hai."
+  },
+  {
+    "id": "adrish",
+    "name": "Adrish (Room 310)",
+    "aliases": [
+      "adrish",
+      "310"
+    ],
+    "phones": [],
+    "title": "West Bengal Rep & Notes Hunter (104+ msgs)",
+    "kundali": "West Bengal se hai, Hostel Room 310. Pehla hi dialogue: \"Bas CR absent tha\". Engineering Materials ke notes mangta rehta hai aur \"Fahhh\" bolta hai."
+  },
+  {
+    "id": "shubham-karnataka",
+    "name": "Shubham #10 (Karnataka / Kho-Kho Champion)",
+    "aliases": [
+      "karnataka",
+      "kho kho",
+      "number ten",
+      "mechanonics"
+    ],
+    "phones": [],
+    "title": "Karnataka Kho-Kho Champion & Washing Machine Philosopher (91+ msgs)",
+    "kundali": "Karnataka se aaya hai, टूटी-फूटी pyari Hindi bolta hai, roommate Marathi hai. Kho-Kho Champion hai. Harsh se 5TB Google One aur Gemini Pro subscription liya hai. Famous dialogue: \"Bhai 18 log washing machine me nhi atenge\" aur \"#UnemploymentMachine\"."
+  },
+  {
+    "id": "utkarsh-seth",
+    "name": "Utkarsh Seth",
+    "aliases": [
+      "utkarsh",
+      "seth"
+    ],
+    "phones": [],
+    "title": "SIH Hustler & Group Reality Checker (81+ msgs)",
+    "kundali": "Serious SIH aur team-building wala banda. Pure group ko ek line mein roast kiya tha: \"By watching messages of this group.. I found this group is mainly for Shaurya Malik & HARSH.. Rest see the drama\". Electrical lab ki file ke photos mangta rehta hai."
+  },
+  {
+    "id": "karthik-reddy",
+    "name": "Karthik Reddy",
+    "aliases": [
+      "karthik",
+      "reddy"
+    ],
+    "phones": [],
+    "title": "Quiz over Mid-Sem Strategist & Thala Fan (78+ msgs)",
+    "kundali": "Adhyaay team member aur practical banda (\"It's better to write a quiz rather than mid sem\", \"C tho hi hai naki Relativity\", \"8-1=7 Thala for a Reason\")."
+  },
+  {
+    "id": "chayan-rana",
+    "name": "Chayan Rana",
+    "aliases": [
+      "chayan",
+      "rana"
+    ],
+    "phones": [],
+    "title": "Jagannath Puri Ghost & Savage One-Liner (67+ msgs)",
+    "kundali": "Odisha (Jagannath Puri) se hai. Raat ko bolta hai \"Ma bhoot huu\", \"Who asked for your opinion\", \"Hasne ke liya tax dena padhta ha kya\"."
+  },
+  {
+    "id": "arunika",
+    "name": "Arunika",
+    "aliases": [
+      "arunika"
+    ],
+    "phones": [],
+    "title": "CR Roaster & Hostel Lock Gang (62+ msgs)",
+    "kundali": "Anshika ki dost. Khul ke bolti hai \"Areey CR ki yaha nhi chalti broo 😂😂\" aur \"tumhare aane se pehle hi hum lock kr chuke honge\"."
+  },
+  {
+    "id": "reyansh",
+    "name": "Reyansh Chandra",
+    "aliases": [
+      "reyansh",
+      "9243177919"
+    ],
+    "phones": [
+      "919243177919"
+    ],
+    "title": "Proxy Master (\"20 bacho me 40 ki proxy\") (56+ msgs)",
+    "kundali": "Famous quote: \"Physically present but mentally kahi aur\" aur \"20 bacho me 40 ki proxy laga dete hai 💀\". Nehal sir ke C classes skip karne ka sabse bada supporter."
+  },
+  {
+    "id": "sangeet",
+    "name": "Sangeet",
+    "aliases": [
+      "sangeet"
+    ],
+    "phones": [],
+    "title": "Lost Fastrack Watch & 7 Crore Package Taunter (36+ msgs)",
+    "kundali": "Mechanical workshop mein apni Fastrack smartwatch bhool aaya tha. Jo bache bunk nahi marte unko bolta hai \"Mechatronics walo ko shayad 7 Cr ka package chahiye isliye itna ragad rahe hai\"."
+  },
+  {
+    "id": "sayan-saha",
+    "name": "Sayan Saha",
+    "aliases": [
+      "sayan",
+      "9641616989"
+    ],
+    "phones": [
+      "919641616989"
+    ],
+    "title": "Mass Bunk Enforcer (35+ msgs)",
+    "kundali": "Seedhi dhamki deta hai: \"Tum akele jaoge tumhari attendance waise bhi nhi lagegi aur baki ka tum khud samajh lo ☠️\"."
+  },
+  {
+    "id": "roll-34",
+    "name": "Roll No. 34 (NCC & Basanti Dialogues)",
+    "aliases": [
+      "9098268514",
+      "roll no 34",
+      "roll 34"
+    ],
+    "phones": [
+      "919098268514"
+    ],
+    "title": "Proxy Roll No. 34 & Basanti Dialogue King",
+    "kundali": "Har class mein bolta hai \"Proxy laga dena meri roll no. 34\" aur \"In kutto ke samne mat nachna basanti\". Vote dene ke badle birthday party mangta hai."
+  },
+  {
+    "id": "arpan",
+    "name": "Arpan (Room 321)",
+    "aliases": [
+      "arpan",
+      "8627953654"
+    ],
+    "phones": [
+      "918627953654"
+    ],
+    "title": "Room 321 Bulk Order & Cash Collector",
+    "kundali": "Batch ke saare bulk orders place karta hai aur kehta hai \"Jisne cash me payment krna hai vo room no. 321 me pakda do\"."
+  }
+]
+
+// Pre-seed known phone numbers from IIIT Bhagalpur Mechatronics chat export
+for (const stu of STUDENT_KUNDALIS) {
+  for (const ph of stu.phones || []) {
+    contactDirectory.set(`${ph}@s.whatsapp.net`, { name: stu.name, notify: stu.name, verifiedName: '' })
+  }
+}
+
+function buildStudentKundaliContext(queryText = '', jid = '') {
+  const cleanPhone = String(jid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '')
+  const lower = String(queryText || '').toLowerCase()
+  const matched = STUDENT_KUNDALIS.filter((s) => {
+    const pMatch = cleanPhone && (s.phones || []).some((p) => cleanPhone.endsWith(p.slice(-10)))
+    const nMatch =
+      (s.aliases || []).some((a) => lower.includes(a.toLowerCase())) ||
+      lower.includes(s.name.toLowerCase())
+    return pMatch || nMatch
+  })
+  if (matched.length > 0) {
+    return (
+      CAMPUS_LORE +
+      '\n\nMatched Student Kundali:\n' +
+      matched.map((m) => `- ${m.name} (${m.title}): ${m.kundali}`).join('\n')
+    )
+  }
+  return (
+    CAMPUS_LORE +
+    '\n\nIIIT Bhagalpur Mechatronics Key Students:\n' +
+    STUDENT_KUNDALIS.slice(0, 14)
+      .map((m) => `- ${m.name} (${m.title}): ${m.kundali}`)
+      .join('\n')
+  )
+}
+
 // Prevent transient Baileys internal sendRetryRequest (428) errors from crashing Heroku dyno
 process.on('unhandledRejection', (err) => {
   console.warn('[SafeGuard] Ignored unhandledRejection:', err?.message || err)
@@ -148,21 +474,24 @@ async function fetchAvatarDataUrl(sock, jid) {
   }
 }
 
-async function generateGeminiReply({ prompt, quotedText = '', mode = 'ai' }) {
-  const isDetailed = wantsDetailedAnswer(`${prompt} ${quotedText}`)
+async function generateGeminiReply({ prompt, quotedText = '', targetName = '', targetJid = '', mode = 'ai' }) {
+  const kundaliContext = buildStudentKundaliContext(`${prompt} ${quotedText} ${targetName}`, targetJid)
+  const isDetailed = wantsDetailedAnswer(`${prompt} ${quotedText}`) || mode === 'kundali'
   const lengthRule = isDetailed
-    ? 'User ne detail/ache se explain karne bola hai, toh Modi ji ke tone mein ache se samjhao.'
+    ? 'Modi ji ke tone mein 3-4 punchy lines mein mazedar jawab/kundali do.'
     : 'STRICT RULE: Jawab SIRF 2 se 3 short lines (maximum 35-45 words) mein hi dena! Bada paragraph bilkul mat likhna. Chhota, punchy aur witty 2-3 line mein baat khatam karo.'
 
   const systemInstruction =
     mode === 'roast'
-      ? 'Tum MODI CHATBOT ho aur bilkul Narendra Modi ji ke iconic bhashan wale tone mein Hinglish mein baat karte ho ("Mitron!", "Mere pyare deshwasiyon", "Bhaiyon aur behno"). Diye gaye message par Modi ji ke andaaz mein SIRF 2 short lines ka funny, savage roast likho.'
+      ? `Tum IIIT Bhagalpur Mechatronics batch ke official MODI CHATBOT ho ("Mitron!", "Mere pyare deshwasiyon"). Niche diye gaye batch context aur student kundali ka use karke Modi ji ke andaaz mein SIRF 2-3 short lines ka personal, savage aur funny roast likho.\n\n${kundaliContext}`
+      : mode === 'kundali'
+        ? `Tum IIIT Bhagalpur Mechatronics batch ke official MODI CHATBOT ho ("Mitron!", "Bhaiyon aur behno!"). Niche diye gaye student kundali data ke hisaab se is bachhe ki 3-4 lines mein Modi ji ke tone mein mazedar Kundali aur pol khol ke rakh do!\n\n${kundaliContext}`
       : mode === 'qai'
-        ? 'Tum MODI CHATBOT ho. Bilkul Modi ji ke iconic tone ("Mitron...", "Bhaiyon aur behno...") mein sirf 1 short punchy, funny Hinglish line (max 18 words) likho jo WhatsApp sticker par mast lage. Koi extra explanation mat dena.'
-        : `Tum MODI CHATBOT ho — tum hamesha Narendra Modi ji ke iconic speech tone aur style mein Hinglish mein jawab dete ho! ("Mitron!", "Mere pyare deshwasiyon!", "Bhaiyon aur behno!"). ${lengthRule}`
+        ? `Tum MODI CHATBOT ho. Bilkul Modi ji ke iconic tone ("Mitron...", "Bhaiyon aur behno...") mein sirf 1 short punchy, funny Hinglish line (max 18 words) likho jo WhatsApp sticker par mast lage.\n\n${kundaliContext}`
+        : `Tum IIIT Bhagalpur Mechatronics batch ke official MODI CHATBOT ho — tum hamesha Narendra Modi ji ke iconic speech tone ("Mitron!", "Mere pyare deshwasiyon!", "Bhaiyon aur behno!") mein Hinglish mein jawab dete ho aur batch ke har student ki aadat aur kundali jante ho! ${lengthRule}\n\n${kundaliContext}`
 
   const userPrompt = quotedText
-    ? `Quoted Message: "${quotedText}"\n\nUser Request: ${prompt || 'Reply to this'}`
+    ? `Sender/Target: ${targetName || 'Student'}\nQuoted Message: "${quotedText}"\n\nUser Request: ${prompt || 'Reply to this'}`
     : prompt
 
   // 1. Round-Robin across all configured Gemini API keys (GEMINI_API_KEY_1..5 or comma-separated)
@@ -615,7 +944,15 @@ async function startBot() {
           )
           continue
         }
-        const aiAnswer = await generateGeminiReply({ prompt: argText, quotedText: qText, mode: 'ai' })
+        const targetJid = quotedMsg ? quotedParticipant : senderJid
+        const targetName = resolveBestDisplayName(targetJid, sock.user)
+        const aiAnswer = await generateGeminiReply({
+          prompt: argText,
+          quotedText: qText,
+          targetName,
+          targetJid,
+          mode: 'ai',
+        })
         await sock.sendMessage(jid, { text: `*MODI CHATBOT:*\n\n${aiAnswer}` }, { quoted: msg })
         continue
       }
@@ -634,8 +971,35 @@ async function startBot() {
           )
           continue
         }
-        const roastLine = await generateGeminiReply({ prompt: argText, quotedText: qText, mode: 'roast' })
+        const targetJid = quotedMsg ? quotedParticipant : senderJid
+        const targetName = resolveBestDisplayName(targetJid, sock.user)
+        const roastLine = await generateGeminiReply({
+          prompt: argText,
+          quotedText: qText,
+          targetName,
+          targetJid,
+          mode: 'roast',
+        })
         await sock.sendMessage(jid, { text: `*MODI CHATBOT:*\n\n${roastLine}` }, { quoted: msg })
+        continue
+      }
+
+      // 6b. /kundali -> Open Student's IIIT Bhagalpur Mechatronics Kundali in Modi Ji Tone!
+      if (cmd === '/kundali') {
+        const targetJid = quotedMsg ? quotedParticipant : senderJid
+        const targetName = argText || resolveBestDisplayName(targetJid, sock.user)
+        const qText =
+          quotedMsg?.conversation ||
+          quotedMsg?.extendedTextMessage?.text ||
+          ''
+        const kundaliReply = await generateGeminiReply({
+          prompt: `${targetName} ki puri kundali aur batch mein uske kaand batao!`,
+          quotedText: qText,
+          targetName,
+          targetJid,
+          mode: 'kundali',
+        })
+        await sock.sendMessage(jid, { text: `*MODI CHATBOT — KUNDALI:*\n\n${kundaliReply}` }, { quoted: msg })
         continue
       }
 
@@ -645,13 +1009,15 @@ async function startBot() {
           quotedMsg?.conversation ||
           quotedMsg?.extendedTextMessage?.text ||
           ''
+        const targetJid = quotedParticipant || senderJid
+        const senderName = resolveBestDisplayName(targetJid, sock.user)
         const aiQuote = await generateGeminiReply({
           prompt: argText || 'Ek funny backbencher ya coding quote likho',
           quotedText: qText,
+          targetName: senderName,
+          targetJid,
           mode: 'qai',
         })
-        const targetJid = quotedParticipant || senderJid
-        const senderName = resolveBestDisplayName(targetJid, sock.user)
         const avatarDataUrl = await fetchAvatarDataUrl(sock, targetJid)
         const webpSticker = await createQuoteStickerWebp({
           backendUrl: BACKEND_URL,
@@ -674,6 +1040,7 @@ async function startBot() {
               '*MODI CHATBOT — WhatsApp Commands*\n\n' +
               '• */q* — Kisi bhi msg par reply karke sticker banao (/q, /q neon, /q telegram, /q light)\n' +
               '• */ai <sawal>* (ya */modi*) — MODI CHATBOT se Modi ji ke tone mein jawab lo\n' +
+              '• */kundali <naam>* (ya reply */kundali*) — Kisi bhi Mechatronics student ki Kundali kholo\n' +
               '• */roast* — Kisi msg par reply karke Modi ji style roast\n' +
               '• */qai <topic>* — AI se quote likhwa kar seedha sticker banao\n' +
               '• */s* — Photo ko 512x512 sticker banao\n' +
