@@ -24,6 +24,11 @@
       "description": "Default /q sticker theme slug (whatsapp-dark, telegram-quotly, neon-cyber, whatsapp-light)",
       "required": false,
       "value": "whatsapp-dark"
+    },
+    "GEMINI_API_KEY": {
+      "description": "Free Google AI Studio Gemini API Key (for /ai, /roast, and /qai commands)",
+      "required": false,
+      "value": ""
     }
   },
   "formation": {
